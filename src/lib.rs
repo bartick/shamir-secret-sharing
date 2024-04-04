@@ -99,6 +99,63 @@ pub fn split_string(secret: &str, parts: usize, threshold: usize) -> (Vec<String
     }
 }
 
+#[repr(C)] // Explicit C-compatible struct layout
+pub struct ShareData {
+    pub data: *const u8, // Raw pointer to the share data
+    pub len: usize,    // Length of the share data
+}
+
+/// A C-compatible function to split a secret into multiple shares.
+/// 
+/// ## Arguments
+/// * `secret` - The secret to be split in C-compatible struct.
+/// * `secret_len` - Length of the secret.
+/// * `parts` - Total number of shares to create.
+/// * `threshold` - Minimum number of shares required to reconstruct the secret.
+/// 
+/// ## Returns
+/// * `true` if successful; otherwise, `false`.
+#[no_mangle]
+pub extern "C" fn split_string_c(secret: *const u8, secret_len: usize, parts: usize, threshold: usize, encoded_shares: *mut ShareData, error_message: *mut *const u8) -> bool {
+    // Convert the secret to a byte slice.
+    let secret_slice = unsafe { std::slice::from_raw_parts(secret, secret_len) };
+
+    // Split the secret into shares.
+    let shamir = split(secret_slice, parts, threshold);
+
+    match shamir {
+        Ok(data) => {
+            let mut encoded_shamir: Vec<ShareData> = Vec::new();
+
+            // Convert the shares to hex strings.
+            // This is done to make the shares human-readable.
+            for share in data.iter() {
+                let encoded_share = hex::encode(share);
+                encoded_shamir.push(ShareData {
+                    data: encoded_share.as_ptr(),
+                    len: encoded_share.len(),
+                });
+            }
+
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    encoded_shamir.as_ptr(),
+                    encoded_shares,
+                    encoded_shamir.len(),
+                );
+            }
+        },
+        Err(e) => {
+            unsafe {
+                *error_message = e.to_string().as_ptr();
+            }
+        }
+        
+    }
+
+    true
+}
+
 /// Combines shares to reconstruct the secret.
 ///
 /// ## Arguments
@@ -180,6 +237,61 @@ pub fn combile_string(shares: &[String]) -> (String, Box<dyn std::error::Error>)
         Ok(data) => (String::from_utf8(data).unwrap(), "Success".into()),
         Err(e) => ("".into(), e)
     }
+}
+
+/// A C-compatible function to combine shares to reconstruct the secret.
+/// 
+/// ## Arguments
+/// * `shares` - Shares of the secret in C-compatible struct.
+/// * `shares_len` - Number of shares.
+/// * `secret` - The original secret.
+/// * `error_message` - Error message if the operation fails.
+/// 
+/// ## Returns
+/// * `true` if successful; otherwise, `false`.
+#[no_mangle]
+pub extern "C" fn combile_string_c(shares: *const ShareData, shares_len: usize, secret: *mut ShareData, error_message: *mut *const u8) -> bool {
+    // Convert the shares to a slice of ShareData.
+    let shares_slice = unsafe { std::slice::from_raw_parts(shares, shares_len) };
+
+    let mut decoded_shares: Vec<Vec<u8>> = Vec::new();
+
+    // Convert the shares from hex strings to bytes.
+    for share in shares_slice.iter() {
+        let share_data = unsafe { std::slice::from_raw_parts(share.data, share.len) };
+        match hex::decode(share_data) {
+            Ok(data) => decoded_shares.push(data),
+            Err(e) => {
+                unsafe {
+                    *error_message = e.to_string().as_ptr();
+                }
+                return false;
+            }
+        }
+    }
+
+    // Combine the shares to reconstruct the secret.
+    let shamir = combine(&decoded_shares);
+
+    match shamir {
+        Ok(data) => {
+            let secret_string = String::from_utf8(data).unwrap();
+            let secret_share_data = ShareData {
+                data: secret_string.as_ptr(),
+                len: secret_string.len(),
+            };
+            unsafe {
+                *secret = secret_share_data;
+            }
+        },
+        Err(e) => {
+            unsafe {
+                *error_message = e.to_string().as_ptr();
+            }
+        }
+    }
+
+    true
 }
 
 // Test cases for the `lib` module.
