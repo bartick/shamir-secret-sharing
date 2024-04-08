@@ -10,11 +10,11 @@
 </p>
 
 ## 📝 Table of Contents
-- [About](#about)
-- [How it works](#how-it-works)
-- [Usage](#usage)
-- [Contributing](#contributing)
-- [License](#license)
+- [About](#-about)
+- [How it works](#-how-it-works)
+- [Usage](#-usage)
+- [Contributing](#-contributing)
+- [License](#-license)
 
 ## 🧐 About
 Shamir Secret Sharing is a cryptographic algorithm that allows you to split a secret into multiple parts and distribute them among a group of people. The secret can only be reconstructed when a minimum number of parts are combined together.
