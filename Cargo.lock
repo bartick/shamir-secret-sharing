@@ -68,7 +68,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "shamir"
+name = "shamir-secret-sharing"
 version = "1.0.0"
 dependencies = [
  "hex",
