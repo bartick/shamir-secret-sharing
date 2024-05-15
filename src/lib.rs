@@ -3,26 +3,8 @@
 
 mod ops;
 mod polynomial;
-use std::ffi::CStr;
-use std::os::raw::c_char;
 use polynomial::Polynomial;
 use hex;
-
-/// A secret to be split into shares.
-/// The secret is a byte slice that represents the original secret.
-#[repr(C)]
-#[derive(Clone)]
-pub struct Secret {
-    pub value: *mut String,
-}
-
-/// A share data that consists of multiple shares.
-/// The share data is a vector of shares and the length of the vector.
-#[repr(C)] // Explicit C-compatible struct layout
-pub struct ShareData {
-    pub secrets: *mut Secret, // Raw pointer to the share data
-    pub len: usize,    // Length of the share data
-}
 
 /// Splits a secret into multiple shares.
 ///
@@ -117,131 +99,6 @@ pub fn split_string(secret: &str, parts: usize, threshold: usize) -> (Vec<String
     }
 }
 
-/// A C-compatible function to split a secret into multiple shares.
-/// 
-/// ## Arguments
-/// * `secret` - The secret to be split in C-compatible struct.
-/// * `secret_len` - Length of the secret.
-/// * `parts` - Total number of shares to create.
-/// * `threshold` - Minimum number of shares required to reconstruct the secret.
-/// 
-/// ## Returns
-/// * `true` if successful; otherwise, `false`.
-#[no_mangle]
-pub extern "C" fn split_string_c(secret: *const c_char, parts: usize, threshold: usize) -> *mut ShareData {
-
-    // Convert the secret to a byte slice.
-    let secret_slice = unsafe { CStr::from_ptr(secret) };
-
-    // Split the secret into shares.
-    let shamir = split(secret_slice.to_bytes(), parts, threshold);
-
-    match shamir {
-        Ok(data) => {
-            let mut encoded_shamir: Vec<Secret> = vec![];
-
-            // Convert the shares to hex strings.
-            // This is done to make the shares human-readable.
-            for share in data.iter() {
-                let encoded_share = hex::encode(share);
-                // encoded_shamir.push(Box::into_raw(Box::new(encoded_share)));
-                encoded_shamir.push(Secret {
-                    value: Box::into_raw(Box::new(encoded_share)),
-                });
-            }
-
-            // Return the shares as a C-compatible struct.
-            Box::into_raw(Box::new(ShareData {
-                secrets: Box::into_raw(encoded_shamir.into_boxed_slice()) as *mut Secret,
-                len: parts
-            }))
-        },
-        Err(_) => {
-
-            Box::into_raw(Box::new(ShareData {
-                secrets: Box::into_raw(Box::new(Secret {
-                    value: Box::into_raw(Box::new("".to_string())),
-                })),
-                len: 0
-            }))
-        }
-        
-    }
-}
-
-/// A C-compatible function to clear the memory allocated for the shares.
-/// 
-/// ## Arguments
-/// * `data` - The shares to be cleared.
-/// 
-/// ## Returns
-/// * `true` if successful; otherwise, `false`.
-#[no_mangle]
-pub extern "C" fn create_share_data(value: *const c_char) -> *mut ShareData {
-    // Convert the secret to a byte slice.
-    let secret_slice = unsafe { CStr::from_ptr(value) };
-
-    // Create a vector of shares.
-    let mut secret_vec: Vec<Secret> = Vec::new();
-    secret_vec.push(Secret {
-        value: Box::into_raw(Box::new(secret_slice.to_str().unwrap().to_string())),
-    });
-
-    // Convert the shares to a C-compatible struct.
-    let secret = ShareData {
-        secrets: Box::into_raw(secret_vec.into_boxed_slice()) as *mut Secret,
-        len: 1,
-    };
-    Box::into_raw(Box::new(secret))
-}
-
-/// A C-compatible function to add shares to the existing shares.
-/// 
-/// ## Arguments
-/// * `data` - The existing shares.
-/// * `value` - The share to be added.
-/// 
-/// ## Returns
-/// * The updated shares if successful; otherwise, an error.
-#[no_mangle]
-pub extern "C" fn add_share_data(data: *mut ShareData, value: *const c_char) -> *mut ShareData {
-    let secret_slice = unsafe { CStr::from_ptr(value) };
-    // convert to a mutable reference to the Vec share data.
-    let secret_vec = unsafe {
-        let data = data.as_mut().unwrap();
-        std::slice::from_raw_parts_mut(data.secrets, data.len)
-    };
-
-    let mut temp = secret_vec.to_vec();
-    temp.push(Secret {
-        value: Box::into_raw(Box::new(secret_slice.to_str().unwrap().to_string())),
-    });
-
-    let secret = ShareData {
-        secrets: Box::into_raw(temp.into_boxed_slice()) as *mut Secret,
-        len: unsafe {
-            data.as_mut().unwrap().len + 1
-        }
-    };
-    Box::into_raw(Box::new(secret))
-}
-
-/// A C-compatible function to clear the memory allocated for the shares.
-/// 
-/// ## Arguments
-/// * `data` - The shares to be cleared.
-/// 
-/// ## Returns
-/// * `true` if successful; otherwise, `false`.
-#[no_mangle]
-pub extern "C" fn clear_share_data(data: *mut ShareData) {
-    if !data.is_null() {
-        unsafe {
-            let _ = Box::from_raw(data);
-        }
-    }
-}
-
 /// Combines shares to reconstruct the secret.
 ///
 /// ## Arguments
@@ -322,67 +179,6 @@ pub fn combile_string(shares: &[String]) -> (String, Box<dyn std::error::Error>)
     match shamir {
         Ok(data) => (String::from_utf8(data).unwrap(), "Success".into()),
         Err(e) => ("".into(), e)
-    }
-}
-
-/// A C-compatible function to combine shares to reconstruct the secret.
-/// 
-/// ## Arguments
-/// * `shares` - Shares of the secret in C-compatible struct.
-/// * `shares_len` - Number of shares.
-/// * `secret` - The original secret.
-/// * `error_message` - Error message if the operation fails.
-/// 
-/// ## Returns
-/// * `true` if successful; otherwise, `false`.
-#[no_mangle]
-pub extern "C" fn combile_string_c(shares: *mut ShareData) -> *mut String {
-    // Convert the shares to a slice of ShareData.
-    let (configs, len) = unsafe {
-        let shares = shares.as_ref().unwrap();
-        (shares.secrets, shares.len)
-    };
-
-    // convert the shares to a vector of bytes.
-    let mut decoded_shares: Vec<Vec<u8>> = Vec::new();
-    for i in 0..len {
-        let config = unsafe { configs.add(i) };
-        let value = unsafe { &*config }.value;
-        let value_str = unsafe { &*value };
-        // decode the shares from hex strings to bytes.
-        match hex::decode(value_str) {
-            Ok(data) => decoded_shares.push(data),
-            Err(_) => return Box::into_raw(Box::new(String::from(""))),
-        }
-    }
-
-    // Combine the shares to reconstruct the secret.
-    let shamir = combine(&decoded_shares);
-
-    match shamir {
-        Ok(data) => {
-            let secret_string = String::from_utf8(data).unwrap();
-            return Box::into_raw(Box::new(secret_string));
-        },
-        Err(_) => {
-            return Box::into_raw(Box::new(String::from("")));
-        }
-    }
-}
-
-/// A C-compatible function to clear the memory allocated for the shares.
-/// 
-/// ## Arguments
-/// * `data` - The shares to be cleared.
-/// 
-/// ## Returns
-/// * `true` if successful; otherwise, `false`.
-#[no_mangle]
-pub extern "C" fn clear_string_c(data: *mut String) {
-    if !data.is_null() {
-        unsafe {
-            let _ = Box::from_raw(data);
-        }
     }
 }
 
