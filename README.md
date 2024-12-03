@@ -25,48 +25,25 @@ The algorithm works by generating a polynomial of degree `k-1` where `k` is the 
 
 ## 📦 Usage
 
-```js
-const ref = require('ref-napi')
-const ffi = require('ffi-napi')
+```rust
+use shamir::{split, combine};
 
-const ArrayType = require('ref-array-di')(ref)
-const StructType = require('ref-struct-di')(ref)
+fn main() {
+    // Define the secret to be split.
+    let secret = "Hello, World!";
 
-const Secret = StructType({
-  value: stringPtr,
-});
-const ShareData = StructType({
-    secrets: ArrayType(Secret),
-    len: ref.types.size_t,
-})
-const ShareDataPtr = ref.refType(ShareData);
+    // Split the secret into 5 shares with a threshold of 3.
+    let shares = split(secret, 5, 3).unwrap();
 
-const libPath = 'libshamir.dylib'
-const lib = ffi.Library(libPath, {
-  split_string_c: [ ShareDataPtr, [ 'String', 'size_t', 'size_t' ] ],
-  combile_string_c: [ stringPtr, [ShareDataPtr] ],
-  clear_share_data: [ 'void', [ ShareDataPtr ] ],
-  clear_string_c: [ 'void', [ stringPtr ] ],
-  create_share_data: [ ShareDataPtr, ['String'] ],
-  add_share_data: [ ShareDataPtr, [ ShareDataPtr, 'String' ] ],
-});
+    // Display the shares.
+    for (idx, share) in shares.iter().enumerate() {
+        println!("Share {}: {:?}", idx + 1, share);
+    }
 
-const secret = 'Hello World';
-const parts = 5;
-const threshold = 3;
-
-const dataRef = lib.split_string_c(secret, parts, threshold);
-
-const data = dataRef.deref();
-
-data.secrets.length = data.len;
-
-for (let i = 0; i < data.len; i++) {
-    console.log('Secret:', data.secrets[i].value.deref());
-};
-
-// Remember to always clear the data after you are done with it
-lib.clear_share_data(dataRef);
+    // Combine the shares to reconstruct the secret.
+    let reconstructed = combine(&shares[0..3]).unwrap();
+    println!("Reconstructed: {}", String::from_utf8(reconstructed).unwrap());
+}
 ```
 
 ## 🤝 Contributing
