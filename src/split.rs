@@ -15,6 +15,7 @@ pub trait Secret {
     /// The default implementation calls `self.iter().count()`.
     /// When possible, it is recommended to override this method
     /// with a more efficient implementation.
+    #[inline]
     fn len(&self) -> usize {
         self.iter().count()
     }

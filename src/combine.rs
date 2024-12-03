@@ -13,6 +13,7 @@ pub trait CombineSecret {
     /// The default implementation calls `self.iter().nth(index).unwrap()`.
     /// When possible, it is recommended to override this method
     /// with a more efficient implementation.
+    #[inline]
     fn get(&self, index: usize) -> &Vec<u8> {
         self.iter().nth(index).unwrap()
     }
